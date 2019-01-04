@@ -40,8 +40,9 @@ import           Pos.Chain.Ssc (InnerSharesMap, MCCommitment (..),
                      MCOpening (..), MCShares (..), MCVssCertificate (..),
                      Opening, SignedCommitment, VssCertificate)
 import           Pos.Chain.Txp (TxAux)
-import           Pos.Chain.Update (BlockVersion, BlockVersionData (..), UpId,
-                     UpdateProposal, UpdateVote)
+import           Pos.Chain.Update (BlockVersion, BlockVersionData (..),
+                     ConsensusEra (..), UpId, UpdateProposal, UpdateVote,
+                     consensusEraBVD)
 import           Pos.Communication (EnqueueMsg, HandlerSpecs, InSpecs (..),
                      InvOrDataTK, Listener, MkListeners (..), Msg,
                      MsgSubscribe, MsgSubscribe1, NodeId, OutSpecs (..),
@@ -217,6 +218,8 @@ diffusionLayerFullExposeInternals fdconf
                                 wM   <- Monitoring.createGauge (withCardanoNamespace "diffusion.Window")     $ enmStore m
                                 return $ Just $ DiffusionHealth wqgM wM
 
+    consensusEra <- consensusEraBVD <$> getAdoptedBVData logic
+
     let -- VerInfo is a diffusion-layer-specific thing. It's only used for
         -- negotiating with peers.
         --
@@ -253,12 +256,11 @@ diffusionLayerFullExposeInternals fdconf
         OutSpecs outs = outSpecs mkL
 
         workerOuts :: HandlerSpecs
-        OutSpecs workerOuts = mconcat
+        OutSpecs workerOuts = mconcat $
             [ -- First: the relay system out specs.
               Diffusion.Txp.txOutSpecs logic
             , Diffusion.Update.updateOutSpecs logic
             , Diffusion.Delegation.delegationOutSpecs logic
-            , Diffusion.Ssc.sscOutSpecs logic
               -- Relay system for blocks is ad-hoc.
             , blockWorkerOutSpecs
               -- SSC has non-relay out specs, defined below.
@@ -267,7 +269,8 @@ diffusionLayerFullExposeInternals fdconf
             , slottingWorkerOutSpecs
             , subscriptionWorkerOutSpecs
             , dhtWorkerOutSpecs
-            ]
+            ] ++ whenObftEraOmit consensusEra
+                                 (Diffusion.Ssc.sscOutSpecs logic)
 
         -- An onNewSlotWorker and a localWorker. Latter is mempty. Former
         -- actually does the ssc stuff.
@@ -324,11 +327,11 @@ diffusionLayerFullExposeInternals fdconf
             , Diffusion.Txp.txListeners logTrace logic oq enqueue
             , Diffusion.Update.updateListeners logTrace logic oq enqueue
             , Diffusion.Delegation.delegationListeners logTrace logic oq enqueue
-            , Diffusion.Ssc.sscListeners logTrace logic oq enqueue
             ] ++ [
               subscriptionListeners logTrace oq subscriberNodeType
             | Just (subscriberNodeType, _) <- [mSubscribers]
-            ]
+            ] ++ whenObftEraOmit consensusEra
+                                 (Diffusion.Ssc.sscListeners logTrace logic oq enqueue)
 
         listeners :: VerInfo -> [Listener]
         listeners = mkListeners mkL ourVerInfo
@@ -358,6 +361,10 @@ diffusionLayerFullExposeInternals fdconf
         enqueue = makeEnqueueMsg logTrace ourVerInfo $ \msgType k -> do
             itList <- OQ.enqueue oq msgType (EnqueuedConversation (msgType, k))
             pure (M.fromList itList)
+
+        whenObftEraOmit :: ConsensusEra -> a -> [a]
+        whenObftEraOmit Original x = [x]
+        whenObftEraOmit (OBFT _) _ = []
 
         getBlocks :: NodeId
                   -> HeaderHash
