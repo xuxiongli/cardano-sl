@@ -23,10 +23,10 @@ module PocMode
        , acTopology
        , acStatePath
        , ScriptBuilder(..)
-       , Script(..)
+       , CompiledScript(..)
        , SlotTrigger(..)
-       , Example(..)
-       , ExampleT(runExampleT)
+       , Script(..)
+       , ScriptT(runScriptT)
        , InputParams(..)
        , InputParams2(..)
        , ScriptParams(..)
@@ -112,20 +112,20 @@ data SlotTrigger = SlotTrigger (Dict HasConfigurations -> Diffusion PocMode -> P
 instance Show SlotTrigger where
   show _ = "IO ()"
 
-data Script = Script
+data CompiledScript = CompiledScript
   { slotTriggers   :: Map.Map SlotId SlotTrigger
   , startupActions :: [ SlotTrigger ]
   } deriving (Show, Generic)
-instance Default Script where def = Script def def
+instance Default CompiledScript where def = CompiledScript def def
 
 data ScriptBuilder = ScriptBuilder
-  { sbScript        :: Script
+  { sbScript        :: CompiledScript
   , sbEpochSlots    :: SlotCount
   , sbGenesisConfig :: Config
   }
 
 data ScriptParams = ScriptParams
-  { spScript            :: Example ()
+  { spScript            :: !(Script ())
   , spTodo              :: Todo
   , spRecentSystemStart :: Bool
   , spStartCoreAndRelay :: Bool
@@ -144,8 +144,8 @@ data InputParams2 = InputParams2
   , ip2StatePath    :: Text
   }
 
-newtype ExampleT m a = ExampleT { runExampleT :: StateT ScriptBuilder m a } deriving (Functor, Applicative, Monad, MonadState ScriptBuilder)
-newtype Example a = Example { runExample :: ExampleT (Identity) a } deriving (Applicative, Functor, Monad, MonadState ScriptBuilder)
+newtype ScriptT m a = ScriptT { runScriptT :: StateT ScriptBuilder m a } deriving (Functor, Applicative, Monad, MonadState ScriptBuilder)
+newtype Script a = Script { runScriptMonad :: ScriptT (Identity) a } deriving (Applicative, Functor, Monad, MonadState ScriptBuilder)
 
 writeBrickChan :: CustomEvent -> PocMode ()
 writeBrickChan event = do

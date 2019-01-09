@@ -10,7 +10,7 @@
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeApplications    #-}
 
-module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, printbvd, ScriptParams(..)) where
+module AutomatedTestRunner (Script, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, printbvd, ScriptParams(..)) where
 
 import           Brick hiding (on)
 import           Brick.BChan
@@ -29,7 +29,7 @@ import qualified Data.Text as T
 import           Data.Time.Units (fromMicroseconds)
 import           Data.Version (showVersion)
 import           Formatting (Format, int, sformat, stext, (%))
-import           Graphics.Vty (defAttr, defaultConfig, mkVty)
+import           Graphics.Vty (defaultConfig, mkVty)
 import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
                      header, help, helper, info, infoOption, long, progDesc,
                      switch)
@@ -85,18 +85,18 @@ import           Serokell.Data.Memory.Units (Byte)
 import           BrickUI
 import           BrickUITypes
 import           NodeControl (cleanupNodes, createNodes, genSystemStart, mkTopo)
-import           PocMode (AuxxContext (..), Example (runExample), Example,
-                     ExampleT (runExampleT), InputParams (..),
+import           PocMode (AuxxContext (..), Script (runScriptMonad),
+                     ScriptT (runScriptT), InputParams (..),
                      InputParams2 (..), PocMode,
-                     Script (slotTriggers, startupActions),
+                     CompiledScript (slotTriggers, startupActions),
                      ScriptBuilder (ScriptBuilder, sbEpochSlots, sbGenesisConfig, sbScript),
                      ScriptParams (..), SlotTrigger (..), realModeToAuxx,
                      writeBrickChan)
 import           Types (ScriptRunnerOptions (..), ScriptRunnerUIMode (..),
                      srCommonNodeArgs, srPeers, srUiMode)
 
-exampleToScript :: SlotCount -> Config -> Example () -> Script
-exampleToScript epochSlots config example = sbScript $ snd $ runIdentity $ runStateT (runExampleT $ runExample example) (ScriptBuilder def epochSlots config)
+exampleToScript :: SlotCount -> Config -> Script () -> CompiledScript
+exampleToScript epochSlots config example = sbScript $ snd $ runIdentity $ runStateT (runScriptT $ runScriptMonad example) (ScriptBuilder def epochSlots config)
 
 
 scriptRunnerOptionsParser :: Parser ScriptRunnerOptions
@@ -185,16 +185,18 @@ thing3 opts genesisConfig txpConfig inputParams nr = do
     thing2 diffusion = toRealMode (thing5 (hoistDiffusion realModeToAuxx toRealMode diffusion))
     thing5 :: Diffusion PocMode -> PocMode ()
     thing5 diffusion = do
-      createNodes (spTodo $ ip2ScriptParams inputParams) opts
+      if spStartCoreAndRelay $ ip2ScriptParams inputParams
+        then createNodes (spTodo $ ip2ScriptParams inputParams) opts
+        else pure ()
       let epochSlots = configEpochSlots genesisConfig
       let finalscript = (exampleToScript epochSlots genesisConfig . spScript . ip2ScriptParams) inputParams
       runNode genesisConfig txpConfig nr (thing4 finalscript) diffusion
       cleanupNodes
-    thing4 :: Script -> [ (Text, Diffusion PocMode -> PocMode ()) ]
+    thing4 :: CompiledScript -> [ (Text, Diffusion PocMode -> PocMode ()) ]
     thing4 script = workers script genesisConfig inputParams
   runRealMode updateConfiguration genesisConfig txpConfig nr thing2
 
-workers :: HasConfigurations => Script -> Genesis.Config -> InputParams2 -> [ (Text, Diffusion PocMode -> PocMode ()) ]
+workers :: HasConfigurations => CompiledScript -> Genesis.Config -> InputParams2 -> [ (Text, Diffusion PocMode -> PocMode ()) ]
 workers script genesisConfig InputParams2{ip2EventChan,ip2ReplyChan} =
   [ ( "worker1", worker1 genesisConfig script ip2EventChan)
   , ( "worker2", worker2 ip2EventChan)
@@ -221,10 +223,10 @@ worker2 eventChan diffusion = do
     f Nothing  = Nothing
   liftIO $ do
     writeBChan eventChan $ CENodeInfo $ NodeInfo (getBlockCount localHeight) (getEpochOrSlot localTip) (f globalHeight)
-    threadDelay 100000
+    threadDelay 10000
   worker2 eventChan diffusion
 
-worker1 :: HasConfigurations => Genesis.Config -> Script -> BChan CustomEvent -> Diffusion (PocMode) -> PocMode ()
+worker1 :: HasConfigurations => Genesis.Config -> CompiledScript -> BChan CustomEvent -> Diffusion (PocMode) -> PocMode ()
 worker1 genesisConfig script eventChan diffusion = do
   let
     handler :: SlotId -> PocMode ()
@@ -281,13 +283,11 @@ runDummyUI = do
   eventChan <- newBChan 10
   replyChan <- newBChan 10
   let
-    state :: AppState
-    state = AppState 0 Nothing "" Nothing replyChan
     go :: IO AppState
     go = do
       reply <- liftIO $ readBChan eventChan
       case reply of
-        QuitEvent -> pure state
+        QuitEvent -> pure $ defaultState replyChan
         CESlotStart _ -> do
           go
         CENodeInfo _ -> do
@@ -305,25 +305,23 @@ runUI = do
       , appChooseCursor = showFirstCursor
       , appHandleEvent = handleEvent
       , appStartEvent = \x -> pure x
-      , appAttrMap = const $ attrMap defAttr []
+      , appAttrMap = const $ theMap
       }
-    state :: AppState
-    state = AppState 0 Nothing "" Nothing replyChan
     go :: IO AppState
     go = do
-      finalState <- customMain (mkVty defaultConfig) (Just eventChan) app state
+      finalState <- customMain (mkVty defaultConfig) (Just eventChan) app (defaultState replyChan)
       writeBChan replyChan TriggerShutdown
       pure finalState
   brick <- async go
   pure (eventChan, replyChan, brick)
 
-getGenesisConfig :: Example Config
+getGenesisConfig :: Script Config
 getGenesisConfig = sbGenesisConfig <$> get
 
 data SlotCreationFailure = SlotCreationFailure { msg :: Text, slotsInEpoch :: SlotCount } deriving Show
 instance Exception SlotCreationFailure where
 
-onStartup :: (Dict HasConfigurations -> Diffusion PocMode -> PocMode ()) -> Example ()
+onStartup :: (Dict HasConfigurations -> Diffusion PocMode -> PocMode ()) -> Script ()
 onStartup action = do
   oldsb <- get
   let
@@ -342,12 +340,12 @@ endScript code = do
   writeBrickChan QuitEvent
   triggerShutdown' code
 
-on :: (Word64, Word16) -> (Dict HasConfigurations -> Diffusion PocMode -> PocMode ()) -> Example ()
+on :: (Word64, Word16) -> (Dict HasConfigurations -> Diffusion PocMode -> PocMode ()) -> Script ()
 on (epoch, slot) action = do
   oldsb <- get
   let
     todo = sbEpochSlots oldsb
-    go :: Either Text LocalSlotIndex -> Example LocalSlotIndex
+    go :: Either Text LocalSlotIndex -> Script LocalSlotIndex
     go (Right localSlot) = pure localSlot
     go (Left err) = do
       throw $ SlotCreationFailure err todo

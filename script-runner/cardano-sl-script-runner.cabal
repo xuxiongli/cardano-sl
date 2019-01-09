@@ -14,11 +14,12 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      common
   exposed-modules:      AutomatedTestRunner
-                        Types
                         BrickUI
                         BrickUITypes
-                        PocMode
                         NodeControl
+                        OrphanedLenses
+                        PocMode
+                        Types
   default-language:    Haskell2010
   build-depends:        base
                       , aeson
@@ -54,34 +55,36 @@ library
                       , universum
                       , unix
                       , unordered-containers
+                      , vector
                       , vty
                       , yaml
   ghc-options:         -Wall -Weverything
                        -Wno-unsafe -Wno-missing-import-lists
                        -O2
 
-executable poc
-  main-is:              Poc.hs
+executable testcases
+  main-is:              TestCases.hs
   other-modules:        BlockParser
   default-language:    Haskell2010
   build-depends:        base
                       , bytestring
-                      , universum
-                      , cardano-sl-chain
-                      , cborg
-                      , cardano-sl-script-runner
-                      , cardano-sl-infra
-                      , turtle
-                      , cardano-sl-util
-                      , formatting
-                      , time-units
-                      , data-default
-                      , text
-                      , constraints
                       , cardano-sl
-                      , cardano-sl-db
-                      , cardano-sl-core
                       , cardano-sl-binary
+                      , cardano-sl-chain
+                      , cardano-sl-core
+                      , cardano-sl-db
+                      , cardano-sl-infra
+                      , cardano-sl-script-runner
+                      , cardano-sl-util
+                      , cborg
+                      , constraints
+                      , data-default
+                      , formatting
+                      , serokell-util
+                      , text
+                      , time-units
+                      , turtle
+                      , universum
   ghc-options:         -threaded -rtsopts
                        -Wall -Weverything
                        -Wno-unsafe -Wno-missing-import-lists

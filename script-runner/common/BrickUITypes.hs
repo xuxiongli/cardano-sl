@@ -1,7 +1,8 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module BrickUITypes (AppState(..), Name, CustomEvent(..), Reply(..), SlotStart(..), NodeInfo(..)) where
+module BrickUITypes (AppState(..), Name(..), CustomEvent(..), Reply(..), SlotStart(..), NodeInfo(..), MenuChoice(..)) where
 
+import           Brick.Widgets.List
 import           Brick.BChan
 import           Pos.Core (EpochOrSlot)
 import           Universum hiding (on, state, when)
@@ -12,7 +13,10 @@ data AppState = AppState
   , asLastMsg          :: String
   , asLocalEpochOrSlot :: Maybe EpochOrSlot
   , asReplyChan        :: BChan Reply
+  , asChoiceList       :: List Name MenuChoice
   }
+
+data MenuChoice = ListProposals | Dummy1 | Dummy2 deriving (Show, Eq)
 
 data Reply = TriggerShutdown
 
@@ -33,4 +37,4 @@ data CustomEvent
     | QuitEvent
     deriving Show
 
-data Name = None deriving (Show, Ord, Eq)
+data Name = MainMenu | None deriving (Show, Ord, Eq)
