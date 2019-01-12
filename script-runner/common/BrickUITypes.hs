@@ -1,11 +1,13 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module BrickUITypes (AppState(..), Name(..), CustomEvent(..), Reply(..), SlotStart(..), NodeInfo(..), MenuChoice(..)) where
+module BrickUITypes (AppState(..), Name(..), CustomEvent(..), Reply(..), SlotStart(..), NodeInfo(..), MenuChoice(..), CurrentScreen(..)) where
 
-import           Brick.Widgets.List
 import           Brick.BChan
+import           Brick.Widgets.List
 import           Pos.Core (EpochOrSlot)
 import           Universum hiding (on, state, when)
+
+import           Pos.Chain.Update (ConfirmedProposalState)
 
 data AppState = AppState
   { asLocalHeight      :: Word64
@@ -14,11 +16,14 @@ data AppState = AppState
   , asLocalEpochOrSlot :: Maybe EpochOrSlot
   , asReplyChan        :: BChan Reply
   , asChoiceList       :: List Name MenuChoice
+  , asCurrentScreen    :: CurrentScreen
+  , asProposalList     :: List Name ConfirmedProposalState
   }
 
 data MenuChoice = ListProposals | Dummy1 | Dummy2 deriving (Show, Eq)
+data CurrentScreen = MainScreen | ProposalListing deriving (Show, Eq)
 
-data Reply = TriggerShutdown
+data Reply = TriggerShutdown | QueryProposals
 
 data SlotStart = SlotStart
   { ssEpoch :: Word64
@@ -35,6 +40,7 @@ data CustomEvent
     = CESlotStart SlotStart
     | CENodeInfo NodeInfo
     | QuitEvent
+    | ProposalReply [ConfirmedProposalState]
     deriving Show
 
-data Name = MainMenu | None deriving (Show, Ord, Eq)
+data Name = ProposalName | MainMenu | None deriving (Show, Ord, Eq)

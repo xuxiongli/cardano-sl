@@ -19,26 +19,25 @@ import           Pos.Chain.Update (ApplicationName (ApplicationName),
                      BlockVersion (BlockVersion),
                      BlockVersionData (bvdMaxBlockSize),
                      BlockVersionModifier (bvmMaxBlockSize),
-                     SoftwareVersion (SoftwareVersion), ccApplicationVersion_L,
-                     ccLastKnownBlockVersion_L,
-                     UpdateConfiguration)
+                     SoftwareVersion (SoftwareVersion), UpdateConfiguration,
+                     ccApplicationVersion_L, ccLastKnownBlockVersion_L)
 import qualified Pos.Client.CLI as CLI
-import qualified Pos.GState as GS
-import           Pos.Util.Util (lensOf)
 import           Pos.DB.Class (gsAdoptedBVData)
+import qualified Pos.GState as GS
 import           Pos.Infra.Diffusion.Types (Diffusion)
 import           Pos.Launcher (Configuration, HasConfigurations, ccUpdate_L,
                      cfoFilePath_L, cfoKey_L)
+import           Pos.Util.Util (lensOf)
 
 import           AutomatedTestRunner
 import           BlockParser ()
 import           NodeControl (NodeInfo (..), mutateConfigurationYaml, startNode,
                      stopNodeByName)
+import           OrphanedLenses ()
 import           PocMode
 import           Types (NodeType (..), Todo (Todo))
-import OrphanedLenses ()
 
-import Serokell.Data.Memory.Units (Byte)
+import           Serokell.Data.Memory.Units (Byte)
 
 mutateConfiguration :: Configuration -> Configuration
 mutateConfiguration cfg = (cfg & ccUpdate_L . ccLastKnownBlockVersion_L .~ BlockVersion 0 1 0) & ccUpdate_L . ccApplicationVersion_L .~ 1
@@ -120,10 +119,10 @@ main = do
     getScript :: String -> Script ()
     getScript "test4.1" = test4 1000000 SuccessFullUpdate
     getScript "test4.2" = test4 10000000 FailedProposalUpdate
-    getScript "none" = emptyScript
+    getScript "none"    = emptyScript
     getAutoMode :: String -> Bool
     getAutoMode "none" = False
-    getAutoMode _ = True
+    getAutoMode _      = True
   runScript $ ScriptParams
     { spTodo = (Todo 4)
     , spScript = getScript script

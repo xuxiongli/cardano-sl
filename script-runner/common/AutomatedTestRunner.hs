@@ -49,7 +49,8 @@ import           Pos.Chain.Txp (TxpConfiguration)
 import           Pos.Chain.Update (BlockVersion,
                      BlockVersionData (bvdMaxBlockSize, bvdMaxTxSize),
                      BlockVersionModifier, SoftwareVersion, SystemTag,
-                     UpdateData, mkUpdateProposalWSign, updateConfiguration)
+                     UpdateConfiguration, UpdateData, mkUpdateProposalWSign,
+                     updateConfiguration)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Client.KeyStorage (addSecretKey, getSecretKeysPlain)
 import           Pos.Client.Update.Network (submitUpdateProposal)
@@ -64,6 +65,7 @@ import           Pos.DB.BlockIndex (getTipHeader)
 import           Pos.DB.Class (gsAdoptedBVData)
 import           Pos.DB.DB (initNodeDBs)
 import           Pos.DB.Txp (txpGlobalSettings)
+import qualified Pos.GState as GS
 import           Pos.Infra.Diffusion.Types (Diffusion, hoistDiffusion)
 import           Pos.Infra.Network.Types (NetworkConfig (ncDequeuePolicy, ncEnqueuePolicy, ncFailurePolicy, ncTopology),
                      NodeId, Topology (TopologyAuxx), topologyDequeuePolicy,
@@ -85,13 +87,13 @@ import           Serokell.Data.Memory.Units (Byte)
 import           BrickUI
 import           BrickUITypes
 import           NodeControl (cleanupNodes, createNodes, genSystemStart, mkTopo)
-import           PocMode (AuxxContext (..), Script (runScriptMonad),
-                     ScriptT (runScriptT), InputParams (..),
-                     InputParams2 (..), PocMode,
+import           PocMode (AuxxContext (..),
                      CompiledScript (slotTriggers, startupActions),
+                     InputParams (..), InputParams2 (..), PocMode,
+                     Script (runScriptMonad),
                      ScriptBuilder (ScriptBuilder, sbEpochSlots, sbGenesisConfig, sbScript),
-                     ScriptParams (..), SlotTrigger (..), realModeToAuxx,
-                     writeBrickChan)
+                     ScriptParams (..), ScriptT (runScriptT), SlotTrigger (..),
+                     realModeToAuxx, writeBrickChan)
 import           Types (ScriptRunnerOptions (..), ScriptRunnerUIMode (..),
                      srCommonNodeArgs, srPeers, srUiMode)
 
@@ -209,6 +211,11 @@ brickReplyWorker replyChan diffusion = do
   case reply of
     TriggerShutdown -> do
       triggerShutdown
+    QueryProposals -> do
+      uc <- view (lensOf @UpdateConfiguration)
+      proposals <- GS.getConfirmedProposals uc Nothing
+      writeBrickChan $ ProposalReply proposals
+
   brickReplyWorker replyChan diffusion
 
 worker2 :: HasConfigurations => BChan CustomEvent -> Diffusion PocMode -> PocMode ()
@@ -288,9 +295,7 @@ runDummyUI = do
       reply <- liftIO $ readBChan eventChan
       case reply of
         QuitEvent -> pure $ defaultState replyChan
-        CESlotStart _ -> do
-          go
-        CENodeInfo _ -> do
+        _ -> do
           go
   fakesync <- async go
   pure (eventChan, replyChan, fakesync)
@@ -301,7 +306,7 @@ runUI = do
   replyChan <- newBChan 10
   let
     app = App
-      { appDraw = ui
+      { appDraw = drawUi
       , appChooseCursor = showFirstCursor
       , appHandleEvent = handleEvent
       , appStartEvent = \x -> pure x
